@@ -1,0 +1,57 @@
+# IDEs
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+.coverage*
+htmlcov/
+.pyre/
+.hypothesis/
+
+# Node/frontend
+node_modules/
+frontend/node_modules/
+dist/
+build/
+frontend/dist/
+
+# Local runtime data
+*.db
+*.sqlite
+*.sqlite3
+storage/
+logs/
+
+# Environment files
+.env
+#.env.debug
+.env.prod
+.env.local
+.env.*.local
+frontend/.env.prod
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Archives and temp
+*.log
+*.tmp
+*.swp
+*~
+.cache/
+
+# Tooling state
+caddy-data/
+caddy-config/
+tests/

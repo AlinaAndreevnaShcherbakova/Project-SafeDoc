@@ -1,0 +1,132 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost/api}
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+
+  auth-service:
+    env_file:
+      - .env.debug
+    command: uvicorn app.apps.auth_service:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SECRET_KEY: ${SECRET_KEY}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-debug-internal-token}
+      AUDIT_SERVICE_URL: http://audit-service:8000
+    volumes:
+      - ./:/app
+
+  access-control-service:
+    env_file:
+      - .env.debug
+    command: uvicorn app.apps.access_control_service:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SECRET_KEY: ${SECRET_KEY}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-debug-internal-token}
+      AUDIT_SERVICE_URL: http://audit-service:8000
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+    volumes:
+      - ./:/app
+    depends_on:
+      mailpit:
+        condition: service_started
+
+  document-service:
+    env_file:
+      - .env.debug
+    command: uvicorn app.apps.document_service:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      MONGO_DB: ${MONGO_DB:-safedoc}
+      SECRET_KEY: ${SECRET_KEY}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-debug-internal-token}
+      AUDIT_SERVICE_URL: http://audit-service:8000
+      ACCESS_CONTROL_SERVICE_URL: http://access-control-service:8000
+      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-300}
+    volumes:
+      - ./:/app
+
+  audit-service:
+    env_file:
+      - .env.debug
+    command: uvicorn app.apps.audit_service:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      MONGO_DB: ${MONGO_DB:-safedoc}
+      SECRET_KEY: ${SECRET_KEY}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-debug-internal-token}
+    volumes:
+      - ./:/app
+
+  notification-service:
+    env_file:
+      - .env.debug
+    command: uvicorn app.apps.notification_service:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    environment:
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_FROM: noreply@safedoc.local
+      SMTP_USE_TLS: "false"
+      SMTP_USE_SSL: "false"
+      SMTP_TIMEOUT_SECONDS: 10
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-debug-internal-token}
+    volumes:
+      - ./:/app
+    depends_on:
+      mailpit:
+        condition: service_started
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  mongo:
+    command: ["--auth", "--bind_ip_all"]
+    env_file:
+      - .env.debug
+    ports:
+      - "27017:27017"
+
+  mailpit:
+    image: axllent/mailpit:v1.24
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  pgadmin:
+    image: dpage/pgadmin4:9
+    restart: unless-stopped
+    profiles: ["debug-tools"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@safedoc.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mongo-express:
+    image: mongo-express:1.0.2
+    restart: unless-stopped
+    profiles: ["debug-tools"]
+    env_file:
+      - .env.debug
+    ports:
+      - "8081:8081"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  frontend-node-modules:

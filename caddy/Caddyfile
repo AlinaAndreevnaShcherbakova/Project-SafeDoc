@@ -1,0 +1,65 @@
+{
+	email {$CADDY_EMAIL}
+	order rate_limit first
+}
+
+(safedoc_common) {
+	encode zstd gzip
+
+	rate_limit {
+		zone auth {
+			key {remote_host}
+			events 10
+			window 1m
+			match {
+				path /api/auth/login /api/auth/change-password
+			}
+		}
+
+		zone api {
+			key {remote_host}
+			events 300
+			window 1m
+			match {
+				path /api/*
+			}
+		}
+	}
+
+	handle /api/auth* {
+		uri strip_prefix /api
+		reverse_proxy auth-service:8000
+	}
+
+	handle /api/users* {
+		uri strip_prefix /api
+		reverse_proxy auth-service:8000
+	}
+
+	handle /api/access* {
+		uri strip_prefix /api
+		reverse_proxy access-control-service:8000
+	}
+
+	handle /api/documents* {
+		uri strip_prefix /api
+		reverse_proxy document-service:8000
+	}
+
+	handle /api/links* {
+		uri strip_prefix /api
+		reverse_proxy document-service:8000
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+}
+
+http://localhost, http://127.0.0.1 {
+	import safedoc_common
+}
+
+{$APP_DOMAIN}, www.{$APP_DOMAIN} {
+	import safedoc_common
+}

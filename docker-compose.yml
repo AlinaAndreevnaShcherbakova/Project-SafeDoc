@@ -1,0 +1,229 @@
+services:
+  caddy:
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
+    image: safedoc-caddy:latest
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      frontend:
+        condition: service_started
+      auth-service:
+        condition: service_healthy
+      access-control-service:
+        condition: service_healthy
+      document-service:
+        condition: service_healthy
+      audit-service:
+        condition: service_healthy
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    image: safedoc-frontend:latest
+    restart: unless-stopped
+    user: "0"
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: safedoc-auth-service:latest
+    user: "0"
+    restart: unless-stopped
+    command: ["uvicorn", "app.apps.auth_service:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    env_file:
+      - .env.prod
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-safedoc}:${POSTGRES_PASSWORD:-safedoc_pass}@postgres:5432/${POSTGRES_DB:-safedoc}
+      SECRET_KEY: ${SECRET_KEY:-change_me_super_secret_key}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      DEFAULT_SUPERADMIN_LOGIN: ${DEFAULT_SUPERADMIN_LOGIN:-admin}
+      DEFAULT_SUPERADMIN_PASSWORD: ${DEFAULT_SUPERADMIN_PASSWORD:-admin123}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-change_me_internal_service_token}
+      AUDIT_SERVICE_URL: http://audit-service:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  access-control-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: safedoc-access-control-service:latest
+    user: "0"
+    restart: unless-stopped
+    command: ["uvicorn", "app.apps.access_control_service:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    env_file:
+      - .env.prod
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-safedoc}:${POSTGRES_PASSWORD:-safedoc_pass}@postgres:5432/${POSTGRES_DB:-safedoc}
+      SECRET_KEY: ${SECRET_KEY:-change_me_super_secret_key}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-change_me_internal_service_token}
+      AUDIT_SERVICE_URL: http://audit-service:8000
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      audit-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  document-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: safedoc-document-service:latest
+    user: "0"
+    restart: unless-stopped
+    command: ["uvicorn", "app.apps.document_service:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    env_file:
+      - .env.prod
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-safedoc}:${POSTGRES_PASSWORD:-safedoc_pass}@postgres:5432/${POSTGRES_DB:-safedoc}
+      MONGO_DB: ${MONGO_DB:-safedoc}
+      SECRET_KEY: ${SECRET_KEY:-change_me_super_secret_key}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-300}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-change_me_internal_service_token}
+      AUDIT_SERVICE_URL: http://audit-service:8000
+      ACCESS_CONTROL_SERVICE_URL: http://access-control-service:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      access-control-service:
+        condition: service_healthy
+      audit-service:
+        condition: service_started
+    volumes:
+      - safedoc-storage:/app/storage
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: safedoc-audit-service:latest
+    user: "0"
+    restart: unless-stopped
+    command: ["uvicorn", "app.apps.audit_service:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    env_file:
+      - .env.prod
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-safedoc}:${POSTGRES_PASSWORD:-safedoc_pass}@postgres:5432/${POSTGRES_DB:-safedoc}
+      MONGO_DB: ${MONGO_DB:-safedoc}
+      SECRET_KEY: ${SECRET_KEY:-change_me_super_secret_key}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-change_me_internal_service_token}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    volumes:
+      - safedoc-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: safedoc-notification-service:latest
+    user: "0"
+    restart: unless-stopped
+    command: ["uvicorn", "app.apps.notification_service:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    env_file:
+      - .env.prod
+    environment:
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-change_me_internal_service_token}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    user: "0"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-safedoc}
+      POSTGRES_USER: ${POSTGRES_USER:-safedoc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-safedoc_pass}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-safedoc} -d ${POSTGRES_DB:-safedoc}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["--auth", "--bind_ip_all"]
+    user: "0"
+    env_file:
+      - .env.prod
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.adminCommand({ ping: 1 }).ok\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  caddy-data:
+  caddy-config:
+  postgres-data:
+  mongo-data:
+  safedoc-storage:
+  safedoc-logs:
